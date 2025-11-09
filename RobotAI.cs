@@ -29,7 +29,7 @@ public class RobotAI : MonoBehaviour
     public float jumpHeight = 2.0f;
     private bool isJumping = false;
 
-    [Header("Stovimo nustatymai")] 
+    [Header("Stovimo nustatymai")]
     private float idleTimer = 0f;
     private float idleDuration = 3.3f;
 
@@ -38,13 +38,10 @@ public class RobotAI : MonoBehaviour
     private float memoryTimer = 0f;
     private bool isInvestigateRunning = false;
 
-    [Header("Sugavimo principas")]
-    public float catchTimeRequired = 40f;       
-    public float catchDecayRate = 2f;           
-    private float currentCatchTime = 0f;        
 
-    public UnityEngine.UI.Image catchCircleUI; 
-
+    [Header("Player damage while chasing")]
+    public float chaseDamagePerSecond = 5f;   // Сколько HP в секунду снимается при преследовании
+    private PlayerHealth playerHealth;        // Кэш ссылки на здоровье игрока
 
     void Start()
     {
@@ -56,9 +53,79 @@ public class RobotAI : MonoBehaviour
         if (patrolPoints.Length > 0)
             agent.destination = patrolPoints[currentPatrolIndex].position;
 
+        // Логируем все объекты с тегом Player (на случай, если их несколько)
+        GameObject[] playersWithTag = GameObject.FindGameObjectsWithTag("Player");
+        if (playersWithTag != null && playersWithTag.Length > 0)
+        {
+            string names = "";
+            foreach (var go in playersWithTag)
+                names += go.name + ", ";
+            Debug.Log($"RobotAI: Found {playersWithTag.Length} GameObject(s) with tag 'Player': {names}");
+        }
+        else
+        {
+            Debug.LogWarning("RobotAI: No GameObjects with tag 'Player' found in scene.");
+        }
+
+        // Попробуем найти игрока и компонент PlayerHealth надёжно:
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
-            player = playerObj.transform;
+        {
+            Debug.Log($"RobotAI: GameObject found by tag 'Player' -> name: '{playerObj.name}' (instance id {playerObj.GetInstanceID()})");
+
+            // Сначала пробуем компонент на том же объекте
+            playerHealth = playerObj.GetComponent<PlayerHealth>();
+            if (playerHealth != null)
+            {
+                player = playerObj.transform;
+                Debug.Log("RobotAI: PlayerHealth found on the object found by tag.");
+            }
+            else
+            {
+                // Затем пробуем в дочерних объектах
+                playerHealth = playerObj.GetComponentInChildren<PlayerHealth>();
+                if (playerHealth != null)
+                {
+                    player = playerHealth.transform;
+                    Debug.Log($"RobotAI: PlayerHealth found in children of '{playerObj.name}', actual component attached to '{playerHealth.gameObject.name}'.");
+                }
+                else
+                {
+                    // Фоллбек: найти любой PlayerHealth в сцене
+                    PlayerHealth phFallback = FindObjectOfType<PlayerHealth>();
+                    if (phFallback != null)
+                    {
+                        playerHealth = phFallback;
+                        player = phFallback.transform;
+                        Debug.Log($"RobotAI: Fallback found PlayerHealth on '{phFallback.gameObject.name}' via FindObjectOfType.");
+                    }
+                    else
+                    {
+                        Debug.LogWarning("RobotAI: Player object found by tag but no PlayerHealth component found on it or its children, and no PlayerHealth found by FindObjectOfType. Please add PlayerHealth to your player GameObject.");
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Если ничего не найдено по тегу — пытаемся найти PlayerHealth прямо
+            PlayerHealth ph = FindObjectOfType<PlayerHealth>();
+            if (ph != null)
+            {
+                playerHealth = ph;
+                player = ph.transform;
+                Debug.Log($"RobotAI: No object with tag 'Player' found; using object '{ph.gameObject.name}' with PlayerHealth from FindObjectOfType.");
+            }
+            else
+            {
+                Debug.LogWarning("RobotAI: No player found by tag and no PlayerHealth in scene. Please ensure your player has tag 'Player' and a PlayerHealth component.");
+            }
+        }
+
+        if (playerHealth == null)
+        {
+            Debug.LogWarning("RobotAI: PlayerHealth not found on player object (found player by tag). Make sure Player has PlayerHealth component.");
+        }
     }
 
     void Update()
@@ -67,48 +134,31 @@ public class RobotAI : MonoBehaviour
 
         animator.SetFloat("Speed", agent.velocity.magnitude);
 
-        if (currentState == EnemyState.Attack)
-        {
-            if (IsPlayerInFOV())
-            {
-                currentCatchTime += Time.deltaTime;
+        if (currentState == EnemyState.Attack) {
 
-                if (currentCatchTime >= catchTimeRequired)
-                {
-                    TriggerEndgame();
-                }
-            }
-            else
-            {
-                currentCatchTime -= catchDecayRate * Time.deltaTime;
-                if (currentCatchTime < 0f)
-                    currentCatchTime = 0f;
-            }
-        }
-        else
-        {
-            currentCatchTime -= catchDecayRate * Time.deltaTime;
-            if (currentCatchTime < 0f)
-                currentCatchTime = 0f;
-        }
 
-        UpdateCatchCircleUI(currentCatchTime / catchTimeRequired);
+            // Наносим урон игроку при преследовании (если есть ссылка)
+            if (playerHealth != null && !playerHealth.IsDead && chaseDamagePerSecond > 0f)
+            {
+                float dmg = chaseDamagePerSecond * Time.deltaTime;
+                playerHealth.TakeDamage(dmg);
+                // Отладочный лог (можно отключить позже)
+                // Debug.Log($"RobotAI: dealing {dmg:F3} damage to player. PlayerHP now {playerHealth.CurrentHealth}/{playerHealth.MaxHealth}");
+            }
+        
+    }
 
         switch (currentState)
         {
-            //NavMesh
             case EnemyState.Patrol:
                 PatrolBehavior();
                 break;
-            //Audio Sensor, NavMesh
             case EnemyState.Investigate:
                 InvestigateBehavior();
                 break;
-            //VisualSensor, Navmesh
             case EnemyState.Attack:
                 AttackBehavior();
                 break;
-            //NavMesh
             case EnemyState.Idle:
                 IdleBehavior();
                 break;
@@ -332,28 +382,6 @@ public class RobotAI : MonoBehaviour
     {
         agent.destination = soundPos;
         SetState(EnemyState.Investigate);
-    }
-
-    private void UpdateCatchCircleUI(float fillAmount)
-    {
-        if (catchCircleUI != null)
-        {
-            fillAmount = Mathf.Clamp01(fillAmount);
-            catchCircleUI.fillAmount = fillAmount;
-
-            if (fillAmount < 0.3f)
-            {
-                catchCircleUI.color = Color.green;
-            }
-            else if (fillAmount < 0.75f)
-            {
-                catchCircleUI.color = Color.yellow;
-            }
-            else
-            {
-                catchCircleUI.color = Color.red;
-            }
-        }
     }
 
     private void TriggerEndgame()
