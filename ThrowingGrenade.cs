@@ -20,7 +20,6 @@ public class ThrowingGrenade : MonoBehaviour
 
     private void Start()
     {
-        mainCamera = Camera.main;
     }
 
     private void Update()

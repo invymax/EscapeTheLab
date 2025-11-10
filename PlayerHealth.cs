@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.Events;
 
 public class PlayerHealth : MonoBehaviour
@@ -19,12 +18,16 @@ public class PlayerHealth : MonoBehaviour
     private void Awake()
     {
         currentHealth = maxHealth;
+        // Сообщаем начальное значение
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
     public float MaxHealth => maxHealth;
     public float CurrentHealth => currentHealth;
     public bool IsDead => isDead;
+
+    public bool IsFull => currentHealth >= maxHealth;
+    public bool IsZero => currentHealth <= 0;
 
     public void TakeDamage(float amount)
     {
@@ -33,6 +36,7 @@ public class PlayerHealth : MonoBehaviour
         currentHealth -= amount;
         if (currentHealth < 0f) currentHealth = 0f;
 
+        // Сообщаем подписчикам об изменении состояния (не меняем UI здесь)
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
         OnDamaged?.Invoke(amount);
 

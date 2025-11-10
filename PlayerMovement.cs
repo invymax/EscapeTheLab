@@ -27,6 +27,8 @@ public class PlayerMovement : MonoBehaviour
 
     public float airInAirMultiplier = 0f;
 
+    public bool inputEnabled = true;
+
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
@@ -47,6 +49,15 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
+        if (!inputEnabled)
+        {
+            // не читаем ввод, но можно поддерживать некоторые состояния
+            horizontalInput = 0f;
+            verticalInput = 0f;
+            // обработка прыжка/буферов опционально - можно игнорировать
+            return;
+        }
+
         grounded = Physics.CheckSphere(transform.position - new Vector3(0, playerHeight * 0.5f, 0), groundCheckRadius, groundLayers);
 
         Debug.DrawRay(transform.position, Vector3.down * (playerHeight * 0.5f), grounded ? Color.green : Color.red);
